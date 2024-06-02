@@ -14,7 +14,7 @@ class TestDatabaseInsert(unittest.TestCase):
         # Загрузить конфигурацию
         cls.db_config = load_db_config('local')
 
-        cls.connection = psycopg2.connect(
+        cls.conn = psycopg2.connect(
             dbname=cls.db_config['dbname'],
             user=cls.db_config['user'],
             password=cls.db_config['password'],
@@ -22,7 +22,7 @@ class TestDatabaseInsert(unittest.TestCase):
             port=cls.db_config['port']
         )
 
-        cls.cursor = cls.connection.cursor()
+        cls.cursor = cls.conn.cursor()
 
     @classmethod
     def tearDownClass(cls):
