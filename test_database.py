@@ -8,11 +8,16 @@ import psycopg2
 from psycopg2 import errors
 
 
+class PostgresDB:
+    def __init__(self):
+        # Загрузить конфигурацию
+        self.db_config = load_db_config('local')
+
+
 class TestDatabaseInsert(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Загрузить конфигурацию
-        cls.db_config = load_db_config('local')
+        cls.db_config = PostgresDB().db_config
 
         cls.conn = psycopg2.connect(
             dbname=cls.db_config['dbname'],
@@ -112,9 +117,12 @@ class TestDatabaseInsert(unittest.TestCase):
 
     def test_insert_invalid_data_with_none(self):
         test_cases = [
-            {"data": {"index": '123',"name": None, "dateofbirth": datetime.date(2000, 1, 1)}, "expected_exception": errors.NotNullViolation},  # name is None
-            {"data": {"index": None,"name": 'Kate', "dateofbirth": datetime.date(2000, 1, 1)}, "expected_exception": errors.NotNullViolation},  # index is None
-            {"data": {"index": 1234,"name": 'Kate', "dateofbirth": None}, "expected_exception": errors.NotNullViolation},
+            {"data": {"index": '123', "name": None, "dateofbirth": datetime.date(2000, 1, 1)},
+             "expected_exception": errors.NotNullViolation},  # name is None
+            {"data": {"index": None, "name": 'Kate', "dateofbirth": datetime.date(2000, 1, 1)},
+             "expected_exception": errors.NotNullViolation},  # index is None
+            {"data": {"index": 1234, "name": 'Kate', "dateofbirth": None},
+             "expected_exception": errors.NotNullViolation},
             # dateofbirth is None
             {"data": {"index": 1234, "name": None, "dateofbirth": None}, "expected_exception": errors.NotNullViolation},
             # name and dateofbirth is None
@@ -124,7 +132,8 @@ class TestDatabaseInsert(unittest.TestCase):
             with self.subTest(case=case):
                 with self.assertRaises(case["expected_exception"]):
                     insert_query = "INSERT INTO people VALUES (%s, %s, %s);"
-                    self.cursor.execute(insert_query, (case["data"]["index"], case["data"]["name"], case["data"]["dateofbirth"]))
+                    self.cursor.execute(insert_query,
+                                        (case["data"]["index"], case["data"]["name"], case["data"]["dateofbirth"]))
                 self.conn.commit()
 
     @parameterized.expand([
@@ -132,8 +141,9 @@ class TestDatabaseInsert(unittest.TestCase):
         (-9223372036854775809, 'Полина', datetime.date(2000, 1, 1), errors.NumericValueOutOfRange),
         ('один', 'Анна-Мария', datetime.date(2011, 7, 1), errors.InvalidTextRepresentation),
         ('№1', 'Марта Кристина', datetime.date(2011, 7, 1), errors.InvalidTextRepresentation),
-        (9.8, {2:4}, datetime.date(2011, 7, 1), errors.ProgrammingError),
-        (9.8, 'Иванов Иван Иванович Ковалев Родилин Родионов Макс1', datetime.date(2011, 7, 1), errors.StringDataRightTruncation),
+        (9.8, {2: 4}, datetime.date(2011, 7, 1), errors.ProgrammingError),
+        (9.8, 'Иванов Иван Иванович Ковалев Родилин Родионов Макс1', datetime.date(2011, 7, 1),
+         errors.StringDataRightTruncation),
     ])
     def test_insert_invalid_data(self, index, name, dateofbirth, expected_exception):
         with self.assertRaises(expected_exception):
@@ -158,7 +168,7 @@ class TestDatabaseUpdateDelete(unittest.TestCase):
 
     @classmethod
     def setUp(cls):
-        cls.db_config = load_db_config('local')
+        cls.db_config = PostgresDB().db_config
 
         cls.connection = psycopg2.connect(
             dbname=cls.db_config['dbname'],
@@ -178,8 +188,10 @@ class TestDatabaseUpdateDelete(unittest.TestCase):
             dateofbirth DATE NOT NULL);
             """)
 
-        cls.cursor.execute("INSERT INTO people (index, name, dateofbirth) VALUES (%s, %s, %s);", (1, 'Jane', datetime.date(2000, 1, 1)))
-        cls.cursor.execute("INSERT INTO people (index, name, dateofbirth) VALUES (%s, %s, %s);", (2, 'Jane', datetime.date(2020, 1, 1)))
+        cls.cursor.execute("INSERT INTO people (index, name, dateofbirth) VALUES (%s, %s, %s);",
+                           (1, 'Jane', datetime.date(2000, 1, 1)))
+        cls.cursor.execute("INSERT INTO people (index, name, dateofbirth) VALUES (%s, %s, %s);",
+                           (2, 'Jane', datetime.date(2020, 1, 1)))
         cls.connection.commit()
 
     @classmethod
@@ -230,7 +242,8 @@ class TestDatabaseUpdateDelete(unittest.TestCase):
     @parameterized.expand([
         (1, 'Jane', "John", datetime.date(2000, 1, 1), errors.UniqueViolation),
     ])
-    def test_update_invalid_name_with_two_lines(self, new_index, old_name, new_name, new_dateofbirth, expected_exception):
+    def test_update_invalid_name_with_two_lines(self, new_index, old_name, new_name, new_dateofbirth,
+                                                expected_exception):
         with self.assertRaises(expected_exception):
             self.cursor.execute("UPDATE people SET index = %s, name = %s, dateofbirth = %s WHERE name = %s",
                                 (new_index, new_name, new_dateofbirth, old_name))
@@ -303,6 +316,141 @@ class TestDatabaseUpdateDelete(unittest.TestCase):
     def test_delete_undefined_table(self):
         with self.assertRaises(errors.UndefinedTable):
             self.cursor.execute("DELETE FROM people1")
+        self.connection.commit()
+
+
+class TestTableModifications(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.db_config = PostgresDB().db_config
+
+        cls.connection = psycopg2.connect(
+            dbname=cls.db_config['dbname'],
+            user=cls.db_config['user'],
+            password=cls.db_config['password'],
+            host=cls.db_config['host'],
+            port=cls.db_config['port']
+        )
+
+        cls.cursor = cls.connection.cursor()
+
+        cls.cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS people 
+            (index BIGINT NOT NULL PRIMARY KEY, 
+             FirstName VARCHAR(50) NOT NULL, 
+             FamilyName VARCHAR(50) NOT NULL, 
+             DateOfBirth DATE NOT NULL,
+             PlaceOfBirth VARCHAR(100), 
+             Occupation VARCHAR(100), 
+             Hobby VARCHAR(300));
+            """)
+
+        cls.connection.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.cursor.execute("DROP TABLE IF EXISTS people;")
+        cls.connection.commit()
+        cls.cursor.close()
+        cls.connection.close()
+
+    @parameterized.expand([
+        'Persons', 'Персона', 'J', 'Persons_3$'])
+    def test_rename_table(self, table_name):
+        try:
+            self.cursor.execute("ALTER TABLE People RENAME TO " + table_name + ";")
+            self.connection.commit()
+            self.cursor.execute("SELECT * FROM " + table_name + ";")
+            self.connection.commit()
+        except Exception as e:
+            self.fail(f"Renaming table failed: {e}")
+        finally:
+            self.cursor.execute("ALTER TABLE " + table_name + " RENAME TO People;")
+            self.connection.commit()
+
+    def test_rename_table_on_operation_word(self):
+        with self.assertRaises(errors.SyntaxError):
+            self.cursor.execute("ALTER TABLE People RENAME TO GROUP;")
+        self.connection.commit()
+
+    @parameterized.expand([
+        'GivenName', 'Имя', 'J', 'Name_3$'])
+    def test_rename_column(self, column_name):
+        try:
+            self.cursor.execute("ALTER TABLE People RENAME COLUMN FirstName TO " + column_name + " ;")
+            self.connection.commit()
+            self.cursor.execute("SELECT " + column_name + " FROM People;")
+            self.connection.commit()
+        except Exception as e:
+            self.fail(f"Renaming column failed: {e}")
+        finally:
+            self.cursor.execute("ALTER TABLE People RENAME COLUMN " + column_name + " TO FirstName;")
+            self.connection.commit()
+
+    @parameterized.expand([
+        'Email', 'Почта', 'E', 'Email_3$'])
+    def test_add_column(self, column_name):
+        try:
+            self.cursor.execute("ALTER TABLE People ADD COLUMN " + column_name + " VARCHAR(255);")
+            self.connection.commit()
+            self.cursor.execute("SELECT " + column_name + " FROM People;")
+            self.connection.commit()
+        except Exception as e:
+            self.fail(f"Adding column failed: {e}")
+        finally:
+            self.cursor.execute("ALTER TABLE People DROP COLUMN " + column_name + ";")
+            self.connection.commit()
+
+    def test_drop_column(self):
+        try:
+            self.cursor.execute("ALTER TABLE People ADD COLUMN TempColumn VARCHAR(255);")
+            self.connection.commit()
+            self.cursor.execute("ALTER TABLE People DROP COLUMN TempColumn;")
+            self.connection.commit()
+        except Exception as e:
+            self.fail(f"Dropping column failed: {e}")
+
+        with self.assertRaises(errors.UndefinedColumn):
+            self.cursor.execute("SELECT TempColumn FROM People;")
+        self.connection.commit()
+
+    def test_alter_column_type(self):
+        try:
+            self.cursor.execute("ALTER TABLE People ALTER COLUMN DateOfBirth TYPE TIMESTAMP;")
+            self.connection.commit()
+        except Exception as e:
+            self.fail(f"Altering column type failed: {e}")
+        finally:
+            self.cursor.execute("ALTER TABLE People ALTER COLUMN DateOfBirth TYPE DATE;")
+            self.connection.commit()
+
+    def test_rename_nonexistent_table(self):
+        with self.assertRaises(psycopg2.Error):
+            self.cursor.execute("ALTER TABLE UnknownTable RENAME TO NewTable;")
+        self.connection.commit()
+
+    def test_rename_nonexistent_column(self):
+        with self.assertRaises(psycopg2.Error):
+            self.cursor.execute("ALTER TABLE People RENAME COLUMN UnknownColumn TO NewColumn;")
+        self.connection.commit()
+
+    def test_add_existing_column(self):
+        with self.assertRaises(psycopg2.Error):
+            self.cursor.execute("ALTER TABLE People ADD COLUMN FirstName VARCHAR(255);")
+        self.connection.commit()
+
+    def test_drop_nonexistent_column(self):
+        with self.assertRaises(psycopg2.Error):
+            self.cursor.execute("ALTER TABLE People DROP COLUMN UnknownColumn;")
+        self.connection.commit()
+
+    def test_alter_column_type_incompatible(self):
+        with self.assertRaises(psycopg2.Error):
+            self.cursor.execute("INSERT INTO People VALUES (%s, %s, %s, %s);",
+                                (1, 'Jane', 'Kolin', datetime.date(2020, 1, 1)))
+            self.connection.commit()
+            self.cursor.execute("ALTER TABLE People ALTER COLUMN DateOfBirth TYPE BIGINT;")
         self.connection.commit()
 
 
